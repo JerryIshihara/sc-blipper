@@ -39,13 +39,14 @@ check_writable_path() {
 
 # Print usage
 usage() {
-    echo -e "Usage: $0 <cnmf|enrich|convert> [-c <file.nf>] [-lqt] [-w workdir] -- [nextflow pipeline args]"
+    echo -e "Usage: $0 <cnmf|enrich|convert> [-a] [-c <file.nf>] [-lqt] [-w workdir] -- [nextflow pipeline args]"
     echo -e "<cnmf|enrich|convert>\t\tThe workflow to run"
     echo -e "-c\t\t\t\t<path/to/config.nf> Nextflow config file for the run"
+    echo -e "-a\t\t\t\tRun process commands with Apptainer containers"
     echo -e "-l\t\t\t\tRun nextflow locally instead of submitting to oversubscribed"
     echo -e "-w\t\t\t\tSet the nextflow work directory (default: ../workdir)"
     echo -e "-q\t\t\t\tSet the queue for the nextflow job (default: oversubscribed)"
-    echo -e "-w\t\t\t\tSet the time limit for the nextflow job (hours) (default: 120)"
+    echo -e "-t\t\t\t\tSet the time limit for the nextflow job (hours) (default: 120)"
     echo -e "-g\t\t\t\tSet the LSF group for the nextflow job (default: teamtrynka)"
     echo -e "-- The rest is passed to nextlfow and overrides -c"
     echo -e ""
@@ -67,7 +68,7 @@ WORKDIR="../workdir"
 QUEUE="oversubscribed"
 RUNTIME_LIMIT="120"
 GROUP="teamtrynka"
-PROFILE="lsf"
+PROFILE="${SC_BLIPPER_PROFILE:-lsf}"
  
 # Path to nextflow file, MUST BE ABSOLUTE
 NF_FILE=/software/teamtrynka/installs/sc-blipper-dev-gpu/main.nf
@@ -92,9 +93,8 @@ export NXF_ANSI_LOG=true
 # Nextflow version, change depending on installation you use
 export NXF_VER=25.04.6
  
-# Singularity cache folder to use
-# Currently doesn't use signularity, but will do in the future
-export NXF_SINGULARITY_CACHEDIR=/lustre/scratch125/humgen/teams_v2/trynka/resources/singularity_cache
+# The cache must be on shared storage so every LSF worker can read the same SIF.
+export NXF_APPTAINER_CACHEDIR="${NXF_APPTAINER_CACHEDIR:-/lustre/scratch125/humgen/teams_v2/trynka/resources/apptainer_cache}"
 
 #-----------------------------------------------------------------
 # Create log dir
@@ -121,8 +121,13 @@ fi
 shift
 
 # Modify the getopts section to include w:
-while getopts ":c:hlw:q:t:g:" opt; do
+while getopts ":ac:hlw:q:t:g:" opt; do
     case $opt in
+        a)
+            if [[ ",${PROFILE}," != *",apptainer,"* ]]; then
+                PROFILE="${PROFILE},apptainer"
+            fi
+            ;;
         c)
             CONFIG_FILE="$OPTARG"
             ;;
@@ -155,6 +160,12 @@ while getopts ":c:hlw:q:t:g:" opt; do
             ;;
     esac
 done
+
+if [[ ",${PROFILE}," == *",apptainer,"* ]] && ! command -v apptainer >/dev/null 2>&1; then
+    echo "❌ ERROR: The Apptainer profile is enabled, but 'apptainer' is not in PATH"
+    echo "Load the farm Apptainer module before launching sc-blipper."
+    exit 1
+fi
 
 # Drop all remaining arguments
 shift $((OPTIND - 1))

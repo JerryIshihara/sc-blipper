@@ -8,7 +8,7 @@ process cnmf_prepare_gpu {
     scratch params.rn_scratch
 
     container "${params.cnmf_gpu?.prepare?.container ?: params.cnmf_gpu?.container ?: params.rn_container}"
-    conda "${params.cnmf_gpu?.prepare?.conda ?: params.cnmf_gpu?.conda ?: projectDir + '/environment_gpu.yml'}"
+    conda "${params.cnmf_gpu?.prepare?.conda ?: params.cnmf_gpu?.conda ?: params.rn_conda}"
 
     input:
         tuple val(id), path(file)
@@ -55,7 +55,7 @@ process cnmf_factorize_gpu {
     scratch params.rn_scratch
 
     container "${params.cnmf_gpu?.container ?: params.rn_container}"
-    conda "${params.cnmf_gpu?.conda ?: projectDir + '/environment_gpu.yml'}"
+    conda "${params.cnmf_gpu?.conda ?: params.rn_conda}"
 
     input:
         tuple val(id), path(file, name: "tmp/*"), val(worker_index)
@@ -90,7 +90,7 @@ process cnmf_consensus_gpu {
     scratch params.rn_scratch
 
     container "${params.cnmf_gpu?.container ?: params.rn_container}"
-    conda "${params.cnmf_gpu?.conda ?: projectDir + '/environment_gpu.yml'}"
+    conda "${params.cnmf_gpu?.conda ?: params.rn_conda}"
     publishDir "$params.rn_publish_dir/cnmf/consensus/${id}/k_${k}", mode: 'symlink', saveAs: { filepath ->
         def pathStr = filepath.toString()
         def newPathStr = pathStr.replaceFirst("^${id}/", "")

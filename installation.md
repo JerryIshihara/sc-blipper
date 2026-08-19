@@ -18,27 +18,25 @@ Exit conda env
 conda deactivate
 ```
 
-# I cannot use conda, now what?
-You may be able to create a singularity/apptainer container based on the conda enviroment, As of writing I have not tested
-this. Some resources below:
-- https://arcdocs.leeds.ac.uk/arc3-arc4/usage/conda-containers.html
-- https://stackoverflow.com/questions/76146763/create-apptainer-container-with-environment-yml-without-creating-a-new-conda-env
-- https://csc-training.github.io/csc-env-eff/hands-on/singularity/singularity_extra_replicating-conda.html
+# Build and run with Apptainer
 
-Once you have your containers, you can set the parameters 
+The unified `environment.yml` can be built once as an OCI image, published to
+GHCR, and converted to a shared SIF on the farm. See
+[`containers/sc-blipper/README.md`](containers/sc-blipper/README.md) for the
+build, registry authentication, upload, pull, and smoke-test commands.
 
-```
-params.rn_container="/path/to/container"
-params.scvi.container="/path/to/container-scvi"
-```
+Set the image in the run config, then combine the LSF and Apptainer profiles:
 
-Also make sure to tell nextflow to use your container engine of choice, example for singularity:
-```
-conda.enabled = false
-singularity.enabled = true
+```groovy
+params.rn_container = 'file:///lustre/<team>/containers/sc-blipper-poc.sif'
+params.preprocess.scvi.container = params.rn_container
+params.cnmf_gpu.container = params.rn_container
 ```
 
-More details: https://www.nextflow.io/docs/latest/container.html#singularity
+```bash
+export NXF_APPTAINER_CACHEDIR=/lustre/<team>/apptainer-cache
+sc-blipper cnmf -a -c run.config
+```
 
 
 # Verify GPU dependencies
