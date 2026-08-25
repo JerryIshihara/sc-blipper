@@ -2,10 +2,6 @@ name: Build and publish sc-blipper container
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: Base version to publish, without a prerelease suffix (for example v0.1.0)
-        required: true
   push:
     branches:
       - main
@@ -38,55 +34,53 @@ jobs:
       - name: Configure tags
         id: select
         env:
-          REQUESTED_VERSION: ${{ inputs.version }}
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
+          if [[ ! -f VERSION ]]; then
+            echo 'The repository root VERSION file is missing.' >&2
+            exit 1
+          fi
+
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "VERSION must contain a base semantic version such as 0.0.5: $version" >&2
+            exit 1
+          fi
+          version="v${BASH_REMATCH[1]}"
+
           if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
             channel=beta
-            suffix=-beta
             channel_tag=beta
-            version="$REQUESTED_VERSION"
+            prerelease="beta.$RUN_NUMBER"
+            sha_suffix=-beta
           elif [[ "$REF_NAME" == 'main' ]]; then
             channel=stable
-            suffix=
             channel_tag=latest
-            version="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            prerelease=
+            sha_suffix=
           elif [[ "$REF_NAME" == 'dev' ]]; then
             channel=dev
-            suffix=-dev
             channel_tag=dev
-            version="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+            prerelease="dev.$RUN_NUMBER"
+            sha_suffix=-dev
           else
             echo "Unsupported publication source: $EVENT_NAME on $REF_NAME" >&2
             exit 1
           fi
 
-          if [[ -z "$version" ]]; then
-            echo 'A base version is required.' >&2
-            exit 1
-          fi
-          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
-            if [[ ! "$version" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-              echo 'Enter a base semantic version such as v0.1.0, without a prerelease suffix.' >&2
-              exit 1
-            fi
-          elif [[ ! "$version" =~ ^v?\.?([0-9]+\.[0-9]+\.[0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "The nearest Git tag is not a supported semantic version: $version" >&2
-            exit 1
-          fi
-          version="v${BASH_REMATCH[1]}"
-          version_tag="$version$suffix"
-          if (( ${#version_tag} > 128 )); then
-            echo "Version tag exceeds the 128-character OCI limit: $version_tag" >&2
-            exit 1
+          if [[ -n "$prerelease" ]]; then
+            version_tag="$version-$prerelease"
+          else
+            version_tag="$version"
           fi
 
           {
             echo "channel=$channel"
             echo "channel_tag=$channel_tag"
             echo "version_tag=$version_tag"
-            echo "sha_tag=sha-$GITHUB_SHA$suffix"
+            echo "sha_tag=sha-$GITHUB_SHA$sha_suffix"
           } >> "$GITHUB_OUTPUT"
 
   build:
