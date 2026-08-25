@@ -1,0 +1,156 @@
+name: Build and publish sc-blipper container
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Base version to publish, without a prerelease suffix (for example v0.1.0)
+        required: true
+  push:
+    branches:
+      - main
+      - dev
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/sc-blipper-amd64
+
+jobs:
+  configure:
+    name: Configure image publication
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.select.outputs.channel }}
+      channel_tag: ${{ steps.select.outputs.channel_tag }}
+      version_tag: ${{ steps.select.outputs.version_tag }}
+      sha_tag: ${{ steps.select.outputs.sha_tag }}
+
+    steps:
+      - name: Check out source and tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure tags
+        id: select
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            channel=beta
+            suffix=-beta
+            channel_tag=beta
+            version="$REQUESTED_VERSION"
+          elif [[ "$REF_NAME" == 'main' ]]; then
+            channel=stable
+            suffix=
+            channel_tag=latest
+            version="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          elif [[ "$REF_NAME" == 'dev' ]]; then
+            channel=dev
+            suffix=-dev
+            channel_tag=dev
+            version="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          else
+            echo "Unsupported publication source: $EVENT_NAME on $REF_NAME" >&2
+            exit 1
+          fi
+
+          if [[ -z "$version" ]]; then
+            echo 'A base version is required.' >&2
+            exit 1
+          fi
+          if [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            if [[ ! "$version" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              echo 'Enter a base semantic version such as v0.1.0, without a prerelease suffix.' >&2
+              exit 1
+            fi
+          elif [[ ! "$version" =~ ^v?\.?([0-9]+\.[0-9]+\.[0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "The nearest Git tag is not a supported semantic version: $version" >&2
+            exit 1
+          fi
+          version="v${BASH_REMATCH[1]}"
+          version_tag="$version$suffix"
+          if (( ${#version_tag} > 128 )); then
+            echo "Version tag exceeds the 128-character OCI limit: $version_tag" >&2
+            exit 1
+          fi
+
+          {
+            echo "channel=$channel"
+            echo "channel_tag=$channel_tag"
+            echo "version_tag=$version_tag"
+            echo "sha_tag=sha-$GITHUB_SHA$suffix"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build linux/amd64 image
+    needs: configure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.configure.outputs.channel_tag }}
+            type=raw,value=${{ needs.configure.outputs.version_tag }}
+            type=raw,value=${{ needs.configure.outputs.sha_tag }}
+
+      - name: Build and push linux/amd64 image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: containers/sc-blipper/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=sc-blipper-amd64
+          cache-to: type=gha,mode=max,scope=sc-blipper-amd64
+          provenance: mode=max
+          sbom: true
+
+      - name: Write publication summary
+        env:
+          PUBLISHED_CHANNEL: ${{ needs.configure.outputs.channel }}
+          PUBLISHED_TAGS: ${{ steps.meta.outputs.tags }}
+          PUBLISHED_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo '### Published container'
+            echo
+            echo "Platform: \`linux/amd64\`"
+            echo "Channel: \`$PUBLISHED_CHANNEL\`"
+            echo
+            echo '```text'
+            echo "$PUBLISHED_TAGS"
+            echo '```'
+            echo
+            echo "Digest: \`$PUBLISHED_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
