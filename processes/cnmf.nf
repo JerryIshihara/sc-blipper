@@ -5,6 +5,7 @@ process cnmf_pre_process {
     scratch params.rn_scratch
     
     container params.rn_container
+    containerOptions Configurer.process(params).cnmf.preprocess.containerOptions
     conda params.rn_conda
 
     publishDir "$params.rn_publish_dir/h5ad/cnmf/${params.rn_runname}", mode: 'symlink'
@@ -100,6 +101,7 @@ process cnmf_factorize {
     scratch Configurer.process(params).cnmf.factorize.scratch
 
     container Configurer.process(params).cnmf.factorize.container
+    containerOptions Configurer.process(params).cnmf.factorize.containerOptions
     conda Configurer.process(params).cnmf.factorize.conda
     // I dont think this needs to be publised long term, but for now its handy for debugging
     //publishDir "$params.rn_publish_dir/cnmf/${id}/factorize", mode: 'symlink'
