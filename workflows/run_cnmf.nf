@@ -1,7 +1,7 @@
 #!/usr/bin/env nextflow
 
 // Processes
-include { cnmf_prepare; cnmf_factorize; cnmf_combine; cnmf_kselection; cnmf_consensus; cnmf_ktree; cnmf_summarize; cnmf_qc; cnmf_qc_summary } from "../processes/cnmf.nf"
+include { cnmf_prepare; cnmf_factorize; cnmf_combine; cnmf_kselection; cnmf_consensus; cnmf_ktree; cnmf_summarize; cnmf_qc_summary } from "../processes/cnmf.nf"
 include { gsea; ora; decoupler; fetch_omnipath } from "../processes/enrichment.nf"
 include { magma_assoc } from "../processes/magma.nf"
 include { magma_concat as magma_concat_main } from "../processes/magma.nf"
