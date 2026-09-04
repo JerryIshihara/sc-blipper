@@ -2,12 +2,13 @@ class CnmfConfigurer {
     static Map process(def params) {
         def cnmf = params?.cnmf
         def gpu = params.containsKey('cnmf_gpu') ? params.cnmf_gpu : [:]
+        def container = ContainerConfigurer.process(params)
         boolean gpuEnabled = gpu?.enabled == true
         boolean gpuPrepareEnabled = gpuEnabled && gpu?.prepare?.enabled == true
         boolean gpuFactorizeEnabled = gpuEnabled && gpu?.factorize?.enabled == true
 
         Map runtime = [
-            container: params?.rn_container,
+            container: container,
             conda    : params?.rn_conda,
             scratch  : params?.rn_scratch
         ]
@@ -23,16 +24,7 @@ class CnmfConfigurer {
                 save_h5ad    : cnmf?.save_h5ad
             ],
             preprocess: [
-                n_variable      : params?.preprocess?.n_variable,
-                // The container home may be read-only, and Nextflow's `env -`
-                // drops exported host variables. Pass writable /tmp caches
-                // explicitly to Apptainer for Numba and Matplotlib.
-                containerOptions: runtime.container
-                    ? [
-                        '--env NUMBA_CACHE_DIR=/tmp/hi5-numba-cache',
-                        '--env MPLCONFIGDIR=/tmp/hi5-matplotlib-cache'
-                    ].join(' ')
-                    : ''
+                n_variable: params?.preprocess?.n_variable
             ],
             prepare   : [
                 engine   : gpuPrepareEnabled ? 'gpu' : 'cpu',

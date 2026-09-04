@@ -5,7 +5,6 @@ process cnmf_pre_process {
     scratch params.rn_scratch
     
     container params.rn_container
-    containerOptions Configurer.process(params).cnmf.preprocess.containerOptions
     conda params.rn_conda
 
     publishDir "$params.rn_publish_dir/h5ad/cnmf/${params.rn_runname}", mode: 'symlink'
