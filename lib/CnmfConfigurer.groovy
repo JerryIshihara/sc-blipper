@@ -2,12 +2,13 @@ class CnmfConfigurer {
     static Map process(def params) {
         def cnmf = params?.cnmf
         def gpu = params.containsKey('cnmf_gpu') ? params.cnmf_gpu : [:]
+        def container = ContainerConfigurer.process(params)
         boolean gpuEnabled = gpu?.enabled == true
         boolean gpuPrepareEnabled = gpuEnabled && gpu?.prepare?.enabled == true
         boolean gpuFactorizeEnabled = gpuEnabled && gpu?.factorize?.enabled == true
 
         Map runtime = [
-            container: params?.rn_container,
+            container: container,
             conda    : params?.rn_conda,
             scratch  : params?.rn_scratch
         ]
@@ -22,7 +23,9 @@ class CnmfConfigurer {
                 local_density: cnmf?.local_density,
                 save_h5ad    : cnmf?.save_h5ad
             ],
-            preprocess: [n_variable: params?.preprocess?.n_variable],
+            preprocess: [
+                n_variable: params?.preprocess?.n_variable
+            ],
             prepare   : [
                 engine   : gpuPrepareEnabled ? 'gpu' : 'cpu',
                 label    : gpuPrepareEnabled ? (gpu?.prepare?.label ?: cnmf?.label) : cnmf?.label,
@@ -38,18 +41,19 @@ class CnmfConfigurer {
                     : ''
             ],
             factorize : [
-                engine   : gpuFactorizeEnabled ? 'gpu' : 'cpu',
-                label    : gpuFactorizeEnabled
+                engine          : gpuFactorizeEnabled ? 'gpu' : 'cpu',
+                label           : gpuFactorizeEnabled
                     ? (gpu?.factorize?.label ?: gpu?.label ?: 'gpu_medium')
                     : cnmf?.label,
-                scratch  : runtime.scratch,
-                container: gpuFactorizeEnabled
+                scratch         : runtime.scratch,
+                container       : gpuFactorizeEnabled
                     ? (gpu?.factorize?.container ?: gpu?.container ?: runtime.container)
                     : runtime.container,
-                conda    : gpuFactorizeEnabled
+                containerOptions: gpuFactorizeEnabled ? '--nv' : '',
+                conda           : gpuFactorizeEnabled
                     ? (gpu?.factorize?.conda ?: gpu?.conda ?: runtime.conda)
                     : runtime.conda,
-                args     : gpuFactorizeEnabled
+                args            : gpuFactorizeEnabled
                     ? joinArgs('--engine gpu', factorizeArgs(gpu, gpu?.factorize))
                     : ''
             ]

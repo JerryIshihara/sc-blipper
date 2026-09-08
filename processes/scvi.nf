@@ -1,9 +1,10 @@
 #!/usr/bin/env nextflow
 
 process scvi_cnmf {
-    label params.preprocess.scvi.label
-    container params.preprocess.scvi.container
-    conda params.preprocess.scvi.conda
+    label Configurer.process(params).scvi.label
+    container Configurer.process(params).scvi.container
+    containerOptions Configurer.process(params).scvi.containerOptions
+    conda Configurer.process(params).scvi.conda
 
     publishDir "$params.rn_publish_dir/h5ad/scvi/${params.rn_runname}", mode: 'symlink'
 
@@ -72,9 +73,10 @@ process scvi_cnmf {
 
 
 process scvi {
-    label params.preprocess.scvi.label
-    container params.preprocess.scvi.container
-    conda params.preprocess.scvi.conda
+    label Configurer.process(params).scvi.label
+    container Configurer.process(params).scvi.container
+    containerOptions Configurer.process(params).scvi.containerOptions
+    conda Configurer.process(params).scvi.conda
 
     publishDir "$params.rn_publish_dir/h5ad/scvi/${params.rn_runname}", mode: 'symlink'
 
