@@ -1,0 +1,182 @@
+name: Build and publish sc-blipper container
+
+on:
+  workflow_dispatch:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  configure:
+    name: Configure image publication
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.select.outputs.channel }}
+      channel_tag: ${{ steps.select.outputs.channel_tag }}
+      branch_tag: ${{ steps.select.outputs.branch_tag }}
+      version_tag: ${{ steps.select.outputs.version_tag }}
+      sha_tag: ${{ steps.select.outputs.sha_tag }}
+      source_branch: ${{ steps.select.outputs.source_branch }}
+      source_sha: ${{ steps.select.outputs.source_sha }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          # Build the merged commit, or the selected manual ref's commit.
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - name: Configure tags
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref || github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          if [[ ! -f VERSION ]]; then
+            echo 'The repository root VERSION file is missing.' >&2
+            exit 1
+          fi
+
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "VERSION must contain a base semantic version such as 0.0.5: $version" >&2
+            exit 1
+          fi
+          version="v${BASH_REMATCH[1]}"
+          source_sha="$(git rev-parse HEAD)"
+          branch_tag=
+
+          if [[ "$EVENT_NAME" == 'pull_request_target' ]]; then
+            channel=official
+            channel_tag=latest
+            prerelease=
+            sha_suffix=
+          elif [[ "$EVENT_NAME" == 'workflow_dispatch' ]]; then
+            channel=beta
+            channel_tag=beta
+            # Branch names may contain slashes or characters invalid in image tags.
+            branch_slug="$(printf '%s' "$REF_NAME" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+            branch_slug="${branch_slug:0:60}"
+            branch_slug="${branch_slug:-branch}"
+            branch_tag="beta-$branch_slug"
+            prerelease="beta.$RUN_NUMBER-$branch_slug"
+            sha_suffix=-beta
+          else
+            echo "Unsupported publication source: $EVENT_NAME on $REF_NAME" >&2
+            exit 1
+          fi
+
+          if [[ -n "$prerelease" ]]; then
+            version_tag="$version-$prerelease"
+          else
+            version_tag="$version"
+          fi
+
+          {
+            echo "channel=$channel"
+            echo "channel_tag=$channel_tag"
+            echo "branch_tag=$branch_tag"
+            echo "version_tag=$version_tag"
+            echo "sha_tag=sha-$source_sha$sha_suffix"
+            echo "source_branch=$REF_NAME"
+            echo "source_sha=$source_sha"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build linux/${{ matrix.architecture }} image
+    needs: configure
+    # Build both architectures in parallel on native runners.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      IMAGE_NAME: ${{ github.repository_owner }}/sc-blipper-${{ matrix.architecture }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.configure.outputs.source_sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.configure.outputs.channel_tag }}
+            type=raw,value=${{ needs.configure.outputs.branch_tag }},enable=${{ needs.configure.outputs.branch_tag != '' }}
+            type=raw,value=${{ needs.configure.outputs.version_tag }}
+            type=raw,value=${{ needs.configure.outputs.sha_tag }}
+          labels: |
+            io.sc-blipper.source.branch=${{ needs.configure.outputs.source_branch }}
+            org.opencontainers.image.revision=${{ needs.configure.outputs.source_sha }}
+
+      - name: Build and push linux/${{ matrix.architecture }} image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: containers/sc-blipper/Dockerfile
+          platforms: linux/${{ matrix.architecture }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VCS_REF=${{ needs.configure.outputs.source_sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=sc-blipper-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=sc-blipper-${{ matrix.architecture }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Write publication summary
+        env:
+          PUBLISHED_ARCHITECTURE: ${{ matrix.architecture }}
+          PUBLISHED_CHANNEL: ${{ needs.configure.outputs.channel }}
+          PUBLISHED_TAGS: ${{ steps.meta.outputs.tags }}
+          PUBLISHED_DIGEST: ${{ steps.build.outputs.digest }}
+          SOURCE_BRANCH: ${{ needs.configure.outputs.source_branch }}
+          SOURCE_SHA: ${{ needs.configure.outputs.source_sha }}
+        run: |
+          {
+            echo '### Published container'
+            echo
+            echo "Platform: \`linux/$PUBLISHED_ARCHITECTURE\`"
+            echo "Channel: \`$PUBLISHED_CHANNEL\`"
+            echo "Branch: \`$SOURCE_BRANCH\`"
+            echo "Commit: \`$SOURCE_SHA\`"
+            echo
+            echo '```text'
+            echo "$PUBLISHED_TAGS"
+            echo '```'
+            echo
+            echo "Digest: \`$PUBLISHED_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"

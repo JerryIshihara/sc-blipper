@@ -26,7 +26,9 @@ dependencies:
   - pip:
     - --extra-index-url https://download.pytorch.org/whl/cu126
     - torch==2.6.0+cu126
-    - torchvision==0.21.0+cu126
+    # Keep the AMD64 CUDA pin; use the base version for all other architectures.
+    - 'torchvision==0.21.0+cu126; platform_machine == "x86_64"'
+    - 'torchvision==0.21.0; platform_machine != "x86_64"'
     - "jax[cuda12]"
     - scvi-tools
     - h5py

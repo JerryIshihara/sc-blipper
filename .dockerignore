@@ -1,0 +1,7 @@
+*
+!environment.yml
+!bin/
+!bin/**
+!containers/
+!containers/sc-blipper/
+!containers/sc-blipper/Dockerfile
