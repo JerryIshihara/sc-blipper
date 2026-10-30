@@ -32,7 +32,7 @@ dependencies:
     - "jax[cuda12]"
     - scvi-tools
     - h5py
-    - "cnmf[gpu] @ git+https://github.com/TrynkaLab/cNMF.git"
+    - "cnmf[gpu] @ git+https://github.com/JerryIshihara/cNMF.git@tmp/sampling-integration"
     - ipython
     - pandas
     - scanpy
