@@ -95,6 +95,34 @@ process cnmf_prepare {
         cmd
 }
 
+
+process cnmf_sample {
+    label params.cnmf.label_high
+    scratch params.rn_scratch
+    container params.rn_container
+    conda params.rn_conda
+    publishDir "$params.rn_publish_dir/cnmf/sampling/${id}", mode: 'symlink'
+
+    input:
+        tuple val(id), path(counts), path(tpm), path(hvg)
+    output:
+        tuple val(id), path("sampling"), emit: samples
+
+    script:
+        def config = Configurer.process(params).cnmf.sampling
+        def prefixArg = config.sample_prefix ? "--sample-prefix '${config.sample_prefix}'" : ''
+        def exportArg = config.sample_export_chunk_size != null ? "--sample-export-chunk-size ${config.sample_export_chunk_size}" : ''
+        """
+        python ${moduleDir}/../bin/sample_cnmf.py \
+            --counts '${counts}' --tpm '${tpm}' --hvg '${hvg}' --output sampling \
+            --sample-method ${config.sample_method} --sample-fraction ${config.sample_fraction} \
+            --sample-times ${config.sample_times} --sample-seed ${config.sample_seed} \
+            --sample-embedding-key '${config.sample_embedding_key}' \
+            --sample-numgenes ${config.sample_numgenes} ${exportArg} ${prefixArg}
+        """
+}
+
+
 process cnmf_factorize {
     label Configurer.process(params).cnmf.factorize.label
     scratch Configurer.process(params).cnmf.factorize.scratch
@@ -271,7 +299,7 @@ process cnmf_consensus {
         --name ${id} \
         --components ${k} \
         --local-density-threshold ${params.cnmf.local_density} \
-        --show-clustering
+        --show-clustering ${params.cnmf.streaming == true ? '--streaming' : ''}
         
         # Zip the textfiles
         find ${id} -maxdepth 1 -type f -name "*.txt" ! -xtype l -exec gzip {} \\;

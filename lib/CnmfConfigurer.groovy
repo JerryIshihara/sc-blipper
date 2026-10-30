@@ -6,6 +6,21 @@ class CnmfConfigurer {
         boolean gpuEnabled = gpu?.enabled == true
         boolean gpuPrepareEnabled = gpuEnabled && gpu?.prepare?.enabled == true
         boolean gpuFactorizeEnabled = gpuEnabled && gpu?.factorize?.enabled == true
+        def sampling = cnmf?.sampling ?: [:]
+        if (sampling.enabled == true) {
+            if (sampling.sample_prefix != null && !(sampling.sample_prefix ==~ /[A-Za-z0-9][A-Za-z0-9_.-]*/)) {
+                throw new IllegalArgumentException('cnmf.sampling.sample_prefix must be a safe filename prefix')
+            }
+            if (!(sampling.sample_method in ['random', 'scsampler'])) {
+                throw new IllegalArgumentException('cnmf.sampling.sample_method must be random or scsampler')
+            }
+            if (sampling.sample_fraction == null || sampling.sample_fraction <= 0 || sampling.sample_fraction > 1) {
+                throw new IllegalArgumentException('cnmf.sampling.sample_fraction must be in (0, 1]')
+            }
+            if (sampling.sample_times != 1) {
+                throw new IllegalArgumentException('cnmf.sampling.sample_times must be 1; multi-sample consensus is not wired yet')
+            }
+        }
 
         Map runtime = [
             container: container,
@@ -15,6 +30,7 @@ class CnmfConfigurer {
 
         [
             runtime   : runtime,
+            sampling  : sampling + [sample_numgenes: params?.preprocess?.n_variable ?: 2000],
             common    : [
                 k            : values(cnmf?.k),
                 n_iter       : cnmf?.n_iter,
@@ -36,9 +52,10 @@ class CnmfConfigurer {
                 conda    : gpuPrepareEnabled
                     ? (gpu?.prepare?.conda ?: gpu?.conda ?: runtime.conda)
                     : runtime.conda,
-                args     : gpuPrepareEnabled
-                    ? joinArgs('--engine gpu', prepareArgs(gpu?.prepare))
-                    : ''
+                args     : joinArgs(
+                    gpuPrepareEnabled ? joinArgs('--engine gpu', prepareArgs(gpu?.prepare)) : '',
+                    cnmf?.streaming == true ? '--streaming' : ''
+                )
             ],
             factorize : [
                 engine          : gpuFactorizeEnabled ? 'gpu' : 'cpu',

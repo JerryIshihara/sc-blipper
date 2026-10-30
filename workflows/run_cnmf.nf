@@ -2,6 +2,7 @@
 
 // Processes
 include { cnmf_prepare; cnmf_factorize; cnmf_combine; cnmf_kselection; cnmf_consensus; cnmf_ktree; cnmf_summarize; cnmf_qc_summary } from "../processes/cnmf.nf"
+include { cnmf_sample } from "../processes/cnmf.nf"
 include { gsea; ora; decoupler; fetch_omnipath } from "../processes/enrichment.nf"
 include { magma_assoc } from "../processes/magma.nf"
 include { magma_concat as magma_concat_main } from "../processes/magma.nf"
@@ -51,11 +52,25 @@ workflow cnmf {
                    fetch_id_linker.out.biotype_ensembl,
                    fetch_id_linker.out.biotype_gene_name)
         
+        // Optionally replace the inputs with one aligned sample, keeping the run ID.
+        cnmf_in = cnmf_staged.cnmf_in
+        cnmf_in_tpm = cnmf_staged.cnmf_in_tpm
+        cnmf_in_hvg = cnmf_staged.cnmf_in_hvg
+        if (params.cnmf.sampling.enabled) {
+            cnmf_sample(cnmf_in.combine(cnmf_in_tpm).combine(cnmf_in_hvg))
+            sampled_in = cnmf_sample.out.samples.map { id, directory ->
+                def manifest = new groovy.json.JsonSlurper().parse(directory.resolve('manifest.json').toFile())
+                def draw = manifest.samples[0]
+                tuple(id, directory.resolve(draw.counts), directory.resolve(draw.tpm),
+                      directory.resolve(manifest.shared_hvg))
+            }.first() // One sample, shared by all downstream K values.
+            cnmf_in = sampled_in.map { id, counts, tpm, hvg -> tuple(id, counts) }
+            cnmf_in_tpm = sampled_in.map { row -> row[2] }
+            cnmf_in_hvg = sampled_in.map { row -> row[3] }
+        }
         // Prepare the cNMF input folder. The process selects CPU or GPU-aware
         // arguments and environment from params.cnmf_gpu.prepare.
-        cnmf_prepared = cnmf_prepare(cnmf_staged.cnmf_in,
-                                     cnmf_staged.cnmf_in_tpm,
-                                     cnmf_staged.cnmf_in_hvg)
+        cnmf_prepared = cnmf_prepare(cnmf_in, cnmf_in_tpm, cnmf_in_hvg)
          
         // Create the channel with the n_workers for jobs to run in parallel
         cnmf_factorize_in = cnmf_prepared
@@ -80,7 +95,7 @@ workflow cnmf {
         
         // Create consensus with or without h5ad
         if (params.cnmf.save_h5ad) {
-            cnmf_out = cnmf_consensus(cnmf_consensus_in, cnmf_combine_out, cnmf_staged.cnmf_in.map{row -> row[1]})
+            cnmf_out = cnmf_consensus(cnmf_consensus_in, cnmf_combine_out, cnmf_in.map{row -> row[1]})
         } else {
             cnmf_out = cnmf_consensus(cnmf_consensus_in, cnmf_combine_out, file("NO_H5AD"))
         }
