@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 include { convert_and_merge } from "../subworkflows/convert_merge.nf"
-include { cnmf_pre_process } from "../processes/cnmf.nf"
+include { cnmf_sampling; cnmf_pre_process } from "../processes/cnmf.nf"
 include { scvi_cnmf } from "../processes/scvi.nf"
 
 workflow cnmf_stage {
@@ -10,7 +10,7 @@ workflow cnmf_stage {
         biotype_ensembl
         biotype_gene_name
     main:
-        
+
         //------------------------------------------------------------ 
         // Prepare cnmf channels
         if (params.cnmf.input.h5ad != null && params.cnmf.input.tpm != null && params.cnmf.input.hvg != null) {
@@ -30,6 +30,12 @@ workflow cnmf_stage {
                                 params.convert.output_namespace)
                                 
             merge_out = convert_and_merge.out.merge_out
+
+            // Sample raw counts once, before preprocessing/scVI and HVG selection.
+            if (params.sampling.enabled == true) {
+                cnmf_sampling(merge_out)
+                merge_out = cnmf_sampling.out.sampled.first()
+            }
             
             //--------------------------------------------------------
             // Optionally run cNMF preprocessing, which creates harmony/scvi corrected data

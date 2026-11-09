@@ -36,6 +36,10 @@ workflow cnmf {
             throw new Exception("Number of workers (cnmf.n_workers) cannot exceed number of cnmf runs (cnmf.n_iter * cnmf.k.size()) or be smaller then 2")
         }
 
+        if (params.cnmf.k_selection_only && params.cnmf.k.split(",").size() < 2) {
+            throw new Exception("cnmf.k_selection_only needs at least two K values in cnmf.k")
+        }
+
         //------------------------------------------------------------
         // Id linking and ensembl reference
         fetch_id_linker(params.rn_ensembl_version, params.convert)
@@ -73,6 +77,15 @@ workflow cnmf {
         // Combine the output   
         cnmf_combine_out = cnmf_combine(cnmf_prepared, cnmf_factorize_out)     
  
+        // Make the K-selection plot only when comparing multiple K values.
+        if (params.cnmf.k.split(",").size() >= 2) {
+            cnmf_kselection(cnmf_prepared, cnmf_combine_out)
+        }
+
+        if (params.cnmf.k_selection_only) {
+            return
+        }
+
         // Make the consensus factorizations
         cnmf_consensus_in = cnmf_prepared
          .map { v -> (params.cnmf.k.split(",")).collect{ i -> tuple(*v, i) } }
@@ -90,13 +103,9 @@ workflow cnmf {
         // Summarize QC metrics
         qc_summary_out = cnmf_qc_summary(params.rn_runname, cnmf_out.qc_metrics.map{row -> row[1]}.toSortedList())
     
-        // TODO: Wrap the below in : if(params.cnmf.k.split(",").size() >= 2)
-        // This is to enable running with a single k value
-        // Make the k selection plot
-        cnmf_kselection(cnmf_prepared, cnmf_combine_out)
         
-        // Plot k-selection tree (how programs relate to eachother)
-        if (params.cnmf.ktree_plot) {
+        // Plot k-selection tree (how programs relate to eachother); needs at least two K values
+        if (params.cnmf.ktree_plot && params.cnmf.k.split(",").size() >= 2) {
             // Collect all (k, file) pairs into a list
             all_files = cnmf_out.spectra_score.map{row -> row[1]}.toSortedList()
 

@@ -1,6 +1,7 @@
 class CnmfConfigurer {
     static Map process(def params) {
         def cnmf = params?.cnmf
+        def sampling = params?.sampling ?: [:]
         def gpu = params.containsKey('cnmf_gpu') ? params.cnmf_gpu : [:]
         def container = ContainerConfigurer.process(params)
         boolean gpuEnabled = gpu?.enabled == true
@@ -15,6 +16,7 @@ class CnmfConfigurer {
 
         [
             runtime   : runtime,
+            sampling  : sampling,
             common    : [
                 k            : values(cnmf?.k),
                 n_iter       : cnmf?.n_iter,
