@@ -56,7 +56,7 @@ workflow fetch_id_linker {
         }
         
         if (convert_params.biotype_filter != null) {
-            biotype_filtered = filter_biotype(ensembl_reference.ensembl)
+            biotype_filtered = filter_biotype(ensembl)
             biotype_ensembl=biotype_filtered.biotype_ensembl
             biotype_gene_name=biotype_filtered.biotype_gene_name
         } else {
