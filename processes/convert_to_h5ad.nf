@@ -67,18 +67,18 @@ process link_h5ad {
             fi
             """
         } else {
-            
+            def streaming = params.convert.streaming ? '--streaming' : ''
             if ((mapping_file.getFileName().toString() == "NO_MAPPING" || !convert_ids)) {
                 cmd =
                 """
                 echo '[INFO] Subsetting genes for h5'
 
-                update_gene_ids.py -i ${file} -o ${id}.h5ad -f ${subset_file}
+                update_gene_ids.py -i ${file} -o ${id}.h5ad -f ${subset_file} ${streaming}
                 """
             } else {
                 cmd  = "echo '[INFO] Updating gene ids for h5'\n\n"
                 
-                cmd += "update_gene_ids.py -i ${file} -m ${mapping_file} -u ${id}_unmapped_genes.txt -o ${id}.h5ad"
+                cmd += "update_gene_ids.py -i ${file} -m ${mapping_file} -u ${id}_unmapped_genes.txt -o ${id}.h5ad ${streaming}"
                 
                 if (subset_file.getFileName().toString() != "NO_SUBSET") {
                     cmd += " -f ${subset_file}"
