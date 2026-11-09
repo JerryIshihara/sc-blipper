@@ -17,8 +17,44 @@ The mapping TSV should have no header and contain:
 """
 
 import argparse
+import os
 import pandas as pd
 import anndata as ad
+
+
+def read_h5ad_streaming(input_file, chunk_size=None):
+    """Read matrices lazily, reserving 2 GiB or 20% of available host RAM."""
+    import h5py
+    import math
+    import psutil
+
+    available = psutil.virtual_memory().available
+    buffer = min(available // 2, max(2 * 1024**3, available // 5))
+    budget = available - buffer
+    print(f"Streaming RAM budget: {budget / 1024**3:.1f} GiB; buffer: {buffer / 1024**3:.1f} GiB")
+
+    def read_chunked(read, key, elem, *, iospec):
+        shape = elem.shape if isinstance(elem, h5py.Dataset) else elem.attrs.get("shape", ())
+        if iospec.encoding_type in ("array", "csr_matrix", "csc_matrix") and len(shape) > 1 and all(shape):
+            axis = int(iospec.encoding_type == "csc_matrix")
+            dtype = elem.dtype if isinstance(elem, h5py.Dataset) else elem["data"].dtype
+            # Allow for sparse indices and temporary read/filter/write copies.
+            bytes_per_row = 8 * max(dtype.itemsize, 8) * (math.prod(shape) // shape[axis])
+            rows = chunk_size or max(1, budget // bytes_per_row)
+            chunks = tuple(rows if i == axis else n for i, n in enumerate(shape))
+            return ad.experimental.read_elem_as_dask(elem, chunks=chunks)
+        return read(elem)
+
+    with h5py.File(input_file, "r") as source:
+        return ad.experimental.read_dispatched(source, read_chunked)
+
+
+def write_h5ad_streaming(adata, output_file):
+    """Write one lazy chunk at a time; copy detaches the view without loading X."""
+    import dask
+
+    with dask.config.set(scheduler="synchronous"):
+        adata.copy().write_h5ad(output_file)
 
 
 def update_gene_ids(adata, mapping_file, unmapped_file=None):
@@ -85,12 +121,21 @@ def main():
     parser.add_argument("-f", "--filter-genes", default=None, help="Optional file with list of gene IDs to filter")
     parser.add_argument("--filter-mode", choices=["include", "exclude"], default="include",
                         help="Filter mode: include only listed genes, or exclude them [default: include]")
+    parser.add_argument("--streaming", action="store_true", help="Stream matrices from disk (requires anndata[dask]>=0.11)")
+    parser.add_argument("--chunk-size", type=int, help="Cells per chunk (CSC: genes); default uses available RAM minus a buffer")
 
     args = parser.parse_args()
+    if args.chunk_size is not None and args.chunk_size < 1:
+        parser.error("--chunk-size must be positive")
 
     # Load AnnData
     print(f"Loading {args.input} ...")
-    adata = ad.read_h5ad(args.input)
+    if args.streaming:
+        if os.path.exists(args.output) and os.path.samefile(args.input, args.output):
+            parser.error("Streaming input and output must be different files")
+        adata = read_h5ad_streaming(args.input, args.chunk_size)
+    else:
+        adata = ad.read_h5ad(args.input)
 
     mapping_dict = None
     if args.mapping:
@@ -104,7 +149,10 @@ def main():
 
     # Save output
     print(f"Saving AnnData to {args.output} ...")
-    adata.write_h5ad(args.output)
+    if args.streaming:
+        write_h5ad_streaming(adata, args.output)
+    else:
+        adata.write_h5ad(args.output)
     print("Done!")
 
 
