@@ -291,6 +291,7 @@ process cnmf_consensus {
     script:
     
         String local_dens = params.cnmf.local_density.toString().replace('.', '_')
+        String streamingArg = params.cnmf.streaming ? '--streaming' : ''
     
         cmd = 
         """
@@ -312,7 +313,7 @@ process cnmf_consensus {
         --name ${id} \
         --components ${k} \
         --local-density-threshold ${params.cnmf.local_density} \
-        --show-clustering
+        --show-clustering ${streamingArg}
         
         # Zip the textfiles
         find ${id} -maxdepth 1 -type f -name "*.txt" ! -xtype l -exec gzip {} \\;

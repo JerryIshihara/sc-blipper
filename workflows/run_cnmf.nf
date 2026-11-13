@@ -87,8 +87,9 @@ workflow cnmf {
         }
 
         // Make the consensus factorizations
+        consensus_ks = (params.cnmf.consensus_k ?: params.cnmf.k).split(",")
         cnmf_consensus_in = cnmf_prepared
-         .map { v -> (params.cnmf.k.split(",")).collect{ i -> tuple(*v, i) } }
+         .map { v -> consensus_ks.collect{ i -> tuple(*v, i) } }
          .flatMap()
         
         // Create consensus with or without h5ad
@@ -105,7 +106,7 @@ workflow cnmf {
     
         
         // Plot k-selection tree (how programs relate to eachother); needs at least two K values
-        if (params.cnmf.ktree_plot && params.cnmf.k.split(",").size() >= 2) {
+        if (params.cnmf.ktree_plot && consensus_ks.size() >= 2) {
             // Collect all (k, file) pairs into a list
             all_files = cnmf_out.spectra_score.map{row -> row[1]}.toSortedList()
 
